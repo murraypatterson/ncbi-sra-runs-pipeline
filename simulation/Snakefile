@@ -1,0 +1,51 @@
+data = '/alina-data1/sarwan/GISAID/Nucleotide_Data/' # put data here
+fasta = data + 'updated_fasta_10k_random.fasta' # file to split
+n = 10181 # number of sequences in fasta
+
+seqs = ['x{:05d}'.format(x) for x in range(n)]
+
+#----------------------------------------------------------------------
+
+rule all :
+    input :
+        expand(data + '{s}.fasta.reads_R1.fastq', s = seqs)
+
+#----------------------------------------------------------------------
+
+# simulate reads from a sequence
+rule simulate :
+    input : '{path}.fasta'
+
+    output :
+        r1 = '{path}.fasta.reads_R1.fastq',
+        r2 = '{path}.fasta.reads_R2.fastq'
+
+    log :
+        log = '{path}.fasta.log',
+        time = '{path}.fasta.time'
+
+    shell : '''
+
+  /usr/bin/time -vo {log.time} \
+    iss generate --genomes {input} --model miseq --output {input}.reads \
+  > {log.log} 2>&1 '''
+
+# remove gaps from a sequence
+rule remove :
+    input : '{path}'
+    output : '{path}.fasta'
+
+    shell : '''
+
+  head -1 {input} > {output}
+  tail -1 {input} | \
+    sed 's/-//g' >> {output} '''
+
+# split fasta file into individual sequences
+rule split :
+    input : fasta
+    output :
+        expand(data + '{s}', s = seqs)
+
+    params : data
+    shell : 'split -d -a5 -l2 {input} {params}x'
