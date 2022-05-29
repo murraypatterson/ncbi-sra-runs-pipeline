@@ -1,4 +1,4 @@
-data = '/alina-data1/sarwan/GISAID/Nucleotide_Data/' # put data here
+data = '/olga-data1/murray/' # put data here
 fasta = data + 'updated_fasta_10k_random.fasta' # file to split
 n = 10181 # number of sequences in fasta
 
