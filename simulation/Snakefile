@@ -8,9 +8,47 @@ seqs = ['x{:05d}'.format(x) for x in range(n)]
 
 rule all :
     input :
-        expand(data + '{s}.fasta.reads_R1.fastq', s = seqs)
+        expand(data + '{s}.fasta.reads.fasta.gz', s = seqs)
 
 #----------------------------------------------------------------------
+
+# convert (zipped) fastq to fasta (https://www.biostars.org/p/85929/)
+rule convert :
+    input :
+        r1 = '{path}_R1.fastq.gz',
+        r2 = '{path}_R2.fastq.gz'
+
+    output : '{path}.fasta.gz'
+    log : '{path}.log'
+
+    shell : '''
+
+  zcat {input.r1} \
+    | awk '{{ if(NR%4 == 1) printf(">%s left\\n", substr($0,2)); \
+             else if(NR%4 == 2) print; }}' 2> {log} \
+    | gzip > {output} 2>> {log}
+
+  zcat {input.r2} \
+    | awk '{{ if(NR%4 == 1) printf(">%s right\\n", substr($0,2)); \
+             else if(NR%4 == 2) print; }}' 2>> {log} \
+    | gzip >> {output} 2>> {log} '''
+
+# compress a pair of simulated reads sets
+rule compress :
+    input :
+        r1 = '{path}_R1.fastq',
+        r2 = '{path}_R2.fastq'
+
+    output :
+        r1 = '{path}_R1.fastq.gz',
+        r2 = '{path}_R2.fastq.gz'
+
+    log : '{path}.compress.log'
+
+    shell : '''
+
+  gzip {input.r1}
+  gzip {input.r2} '''
 
 # simulate reads from a sequence
 rule simulate :
