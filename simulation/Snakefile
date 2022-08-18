@@ -1,14 +1,21 @@
 data = '/olga-data1/murray/' # put data here
 fasta = data + 'updated_fasta_10k_random.fasta' # file to split
-n = 10181 # number of sequences in fasta
+reference = data + 'GCA_009858895.3.fasta' # SARS-CoV-2 reference
+time = '/usr/bin/time'
 
+n = 10181 # number of sequences in fasta
 seqs = ['x{:05d}'.format(x) for x in range(n)]
 
 #----------------------------------------------------------------------
 
 rule all :
     input :
-        expand(data + '{s}.fasta.reads.fasta.gz', s = seqs)
+        # simulated reads (in fasta format)
+        expand(data + '{s}.fasta.reads.fasta.gz', s = seqs),
+
+        # alignments and rates
+        data + 'alignment_rates.csv',
+        expand(data + '{s}.fasta.reads.bwa.fasta', s = seqs)
 
 #----------------------------------------------------------------------
 
@@ -70,8 +77,8 @@ rule simulate :
 
 # remove gaps from a sequence
 rule remove :
-    input : '{path}'
-    output : '{path}.fasta'
+    input : '{path}/x{i}'
+    output : '{path}/x{i,[0-9]+}.fasta'
 
     shell : '''
 
@@ -87,3 +94,95 @@ rule split :
 
     params : data
     shell : 'split -d -a5 -l2 {input} {params}x'
+
+# align sets of simulated reads to the reference genome
+#----------------------------------------------------------------------
+
+# generate consensus sequence from vcf (against reference)
+rule consensus :
+    input :
+        ref = reference,
+        vcf = '{path}.vcf.gz',
+        tbi = '{path}.vcf.gz.tbi' # just a check
+
+    output : '{path}.fasta'
+    log : '{path}.fasta.log'
+
+    shell : '''
+
+  bcftools consensus -f {input.ref} {input.vcf} \
+    -o {output} > {log} 2>&1 '''
+
+# pile the reads upon the reference genome, call variants, normalize
+# and index (https://www.biostars.org/p/367960/)
+rule call_variants :
+    input :
+        ref = reference,
+        bam = '{path}.bam'
+
+    output :
+        vcf = '{path}.vcf.gz',
+        tbi = '{path}.vcf.gz.tbi'
+
+    log : '{path}.calls.log'
+
+    shell : '''
+
+  bcftools mpileup -f {input.ref} {input.bam} -Ou 2> {log} \
+    | bcftools call -mv -Ou 2>> {log} \
+    | bcftools norm -f {input.ref} -Oz -o {output.vcf} >> {log} 2>&1
+
+  touch {output.vcf} && tabix {output.vcf} >> {log} 2>&1
+  touch {output.tbi} '''
+
+# align sequences with bwa mem and store directly as bam
+rule bwa_mem :
+    input :
+        ref = reference,
+        r1 = '{path}_R1.fastq.gz',
+        r2 = '{path}_R2.fastq.gz'
+
+    output : '{path}.bwa.bam'
+
+    log :
+        log = '{path}.bwa.log',
+        time = '{path}.bwa.time'
+
+    shell : '''
+
+  #bwa index {input.ref}
+  {time} -vo {log.time} \
+    bwa mem {input.ref} {input.r1} {input.r2} 2> {log.log} \
+      | samtools sort -o {output} - >> {log.log} 2>&1 '''
+
+# collect some statistics
+#----------------------------------------------------------------------
+
+# gather alignment rates
+rule alignment_rates :
+    input :
+        expand(data + '{s}.fasta.reads.bwa.bam.arate.csv', s = seqs)
+
+    params : data
+    output : data + 'alignment_rates.csv'
+    log : data + 'alignment_rates.log'
+             
+    shell : '''
+
+  echo "Sample,AlignmentRate(%)" > {output} 2> {log}
+  cat {params}/*.fasta.reads.bwa.bam.arate.csv >> {output} 2>> {log}
+  echo "---,---" >> {output} 2>> {log}
+  awk -F, '{{s += $2; c += 1}} END {{printf "AverageRate,%lf\\n", s/c}}' \
+    {output} >> {output} 2>> {log} '''
+
+# alignment rate
+rule alignment_rate :
+    input : '{path}.bam'
+    output : '{path}.bam.arate.csv'
+    log : '{path}.bam.arate.log'
+
+    shell : '''
+
+  samtools stats {input} 2> {log} \
+    | egrep "^#|^SN" 2>> {log} \
+    | python3 ../scripts/alignment-rate.py > {output} 2>> {log} '''
