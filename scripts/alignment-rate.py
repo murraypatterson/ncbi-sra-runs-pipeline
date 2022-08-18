@@ -12,13 +12,13 @@ for line in sys.stdin :
         sample = s[-1].split('/')[-1].split('.')[0]
 
     if line.startswith('SN\traw total sequences:') :
-        sequences = int(s[-1])
+        sequences = int(s[4])
     
     if line.startswith('SN\treads mapped:') :
-        mapped = int(s[-1])
+        mapped = int(s[3])
 
     if line.startswith('SN\treads unmapped:') :
-        unmapped = int(s[-1])
+        unmapped = int(s[3])
 
     if line.startswith('SN\treads MQ0:') :
         mq0 = int(s[3])
